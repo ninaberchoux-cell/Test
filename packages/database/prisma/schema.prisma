@@ -1,0 +1,252 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  domain    String   @unique
+  tenantId  String   @unique
+  plan      Plan     @default(FREE)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users     User[]
+  vacations VacationPeriod[]
+  emails    Email[]
+  auditLogs AuditLog[]
+
+  @@map("organizations")
+}
+
+enum Plan {
+  FREE
+  STARTER
+  PROFESSIONAL
+  ENTERPRISE
+}
+
+model User {
+  id             String   @id @default(cuid())
+  email          String   @unique
+  name           String
+  microsoftId    String   @unique
+  accessToken    String?
+  refreshToken   String?
+  role           Role     @default(USER)
+  organizationId String
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization       Organization     @relation(fields: [organizationId], references: [id])
+  vacations          VacationPeriod[] @relation("VacationOwner")
+  delegationsGiven   VacationPeriod[] @relation("DelegationColleague")
+  emails             Email[]
+  reminders          Reminder[]
+  auditLogs          AuditLog[]
+
+  @@map("users")
+}
+
+enum Role {
+  SUPER_ADMIN
+  ORG_ADMIN
+  MANAGER
+  USER
+}
+
+model VacationPeriod {
+  id                  String         @id @default(cuid())
+  userId              String
+  organizationId      String
+  startDate           DateTime
+  endDate             DateTime
+  colleagueId         String
+  status              VacationStatus @default(SCHEDULED)
+  reminderHours       Int            @default(4)
+  secondReminderHours Int            @default(8)
+  escalationHours     Int            @default(24)
+  oooMessage          String?
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+
+  user         User         @relation("VacationOwner", fields: [userId], references: [id])
+  colleague    User         @relation("DelegationColleague", fields: [colleagueId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
+  emails       Email[]
+  summaryReport VacationSummary?
+
+  @@map("vacation_periods")
+}
+
+enum VacationStatus {
+  SCHEDULED
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+model Email {
+  id             String        @id @default(cuid())
+  messageId      String        @unique
+  organizationId String
+  recipientId    String
+  vacationId     String?
+  subject        String
+  fromAddress    String
+  fromName       String?
+  bodyPreview    String?
+  receivedAt     DateTime
+  status         EmailStatus   @default(PENDING)
+  priority       Priority      @default(NORMAL)
+  category       EmailCategory @default(OTHER)
+  isRead         Boolean       @default(false)
+  isDelegated    Boolean       @default(false)
+  delegatedTo    String?
+  handledAt      DateTime?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  organization Organization    @relation(fields: [organizationId], references: [id])
+  recipient    User            @relation(fields: [recipientId], references: [id])
+  vacation     VacationPeriod? @relation(fields: [vacationId], references: [id])
+  aiAnalysis   AIAnalysis?
+  reminders    Reminder[]
+  replies      Reply[]
+
+  @@map("emails")
+}
+
+enum EmailStatus {
+  PENDING
+  DELEGATED
+  IN_PROGRESS
+  COMPLETED
+  ESCALATED
+  IGNORED
+}
+
+enum Priority {
+  URGENT
+  HIGH
+  NORMAL
+  LOW
+}
+
+enum EmailCategory {
+  CUSTOMER_SUPPORT
+  SALES
+  INTERNAL
+  FINANCE
+  HR
+  OTHER
+}
+
+model Reply {
+  id          String   @id @default(cuid())
+  emailId     String
+  messageId   String   @unique
+  fromAddress String
+  sentAt      DateTime
+  bodyPreview String?
+  createdAt   DateTime @default(now())
+
+  email Email @relation(fields: [emailId], references: [id])
+
+  @@map("replies")
+}
+
+model Reminder {
+  id          String          @id @default(cuid())
+  emailId     String
+  userId      String
+  type        ReminderType
+  channel     ReminderChannel
+  scheduledAt DateTime
+  sentAt      DateTime?
+  status      ReminderStatus  @default(PENDING)
+  createdAt   DateTime        @default(now())
+
+  email Email @relation(fields: [emailId], references: [id])
+  user  User  @relation(fields: [userId], references: [id])
+
+  @@map("reminders")
+}
+
+enum ReminderType {
+  FIRST
+  SECOND
+  ESCALATION
+}
+
+enum ReminderChannel {
+  EMAIL
+  TEAMS
+  IN_APP
+}
+
+enum ReminderStatus {
+  PENDING
+  SENT
+  FAILED
+  CANCELLED
+}
+
+model AIAnalysis {
+  id                  String    @id @default(cuid())
+  emailId             String    @unique
+  summary             String
+  suggestedResponse   String?
+  actionItems         Json      @default("[]")
+  recommendedDeadline DateTime?
+  priorityScore       Int
+  categoryConfidence  Float
+  createdAt           DateTime  @default(now())
+
+  email Email @relation(fields: [emailId], references: [id])
+
+  @@map("ai_analyses")
+}
+
+model VacationSummary {
+  id                    String   @id @default(cuid())
+  vacationId            String   @unique
+  totalEmailsReceived   Int
+  totalEmailsHandled    Int
+  emailsAwaitingAction  Int
+  criticalConversations Json     @default("[]")
+  customerIssuesResolved Int
+  suggestedFollowUps    Json     @default("[]")
+  avgResponseTimeHours  Float?
+  slaComplianceRate     Float?
+  aiInsights            String?
+  generatedAt           DateTime @default(now())
+
+  vacation VacationPeriod @relation(fields: [vacationId], references: [id])
+
+  @@map("vacation_summaries")
+}
+
+model AuditLog {
+  id             String   @id @default(cuid())
+  organizationId String
+  userId         String?
+  action         String
+  resource       String
+  resourceId     String?
+  metadata       Json?
+  ipAddress      String?
+  userAgent      String?
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  user         User?        @relation(fields: [userId], references: [id])
+
+  @@map("audit_logs")
+}
